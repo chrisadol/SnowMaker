@@ -1,9 +1,14 @@
-﻿using System.Collections.Generic;
+﻿using Azure;
+using Azure.Core;
+using Azure.Storage;
+using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
 using System.Net;
 using System.Text;
-using Microsoft.Azure.Storage;
-using Microsoft.Azure.Storage.Blob;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -13,38 +18,78 @@ namespace SnowMaker
     {
         const string SeedValue = "1";
 
-        readonly CloudBlobContainer blobContainer;
+        readonly BlobContainerClient _blobContainerClient;
 
-        readonly IDictionary<string, ICloudBlob> blobReferences;
-        readonly SemaphoreSlim blobReferencesSemaphore = new SemaphoreSlim(1,1);
+        readonly IDictionary<string, BlobClient> _blobReferences;
+        readonly SemaphoreSlim _blobReferencesSemaphore = new SemaphoreSlim(1,1);
 
-        private BlobOptimisticDataStore(CloudStorageAccount account, string containerName)
+        public static async Task<BlobOptimisticDataStore> CreateAsync(string connectionString, string containerName) 
         {
-            var blobClient = account.CreateCloudBlobClient();
-            blobContainer = blobClient.GetContainerReference(containerName.ToLower());
-            //await blobContainer.CreateIfNotExistsAsync();//can't do this in the constructor, hence the create version below
-
-            blobReferences = new Dictionary<string, ICloudBlob>();
+            var ret = new BlobOptimisticDataStore(connectionString, containerName);
+            return await ret.InitializeAsync();
         }
 
-        public static Task<BlobOptimisticDataStore> CreateAsync(CloudStorageAccount account, string containerName)
+        public static async Task<BlobOptimisticDataStore> CreateAsync(Uri serviceUri, AzureSasCredential azureSasCredential, string containerName)
         {
-            var ret = new BlobOptimisticDataStore(account, containerName);
-            return ret.InitializeAsync();
+            var ret = new BlobOptimisticDataStore(serviceUri, azureSasCredential, containerName);
+            return await ret.InitializeAsync();
         }
-
+        public static async Task<BlobOptimisticDataStore> CreateAsync(Uri serviceUri, StorageSharedKeyCredential storageSharedKeyCredential, string containerName)
+        {
+            var ret = new BlobOptimisticDataStore(serviceUri, storageSharedKeyCredential, containerName);
+            return await ret.InitializeAsync();
+        }
+        public static async Task<BlobOptimisticDataStore> CreateAsync(Uri serviceUri, TokenCredential tokenCredential, string containerName)
+        {
+            var ret = new BlobOptimisticDataStore(serviceUri, tokenCredential, containerName);
+            return await ret.InitializeAsync();
+        }
         private async Task<BlobOptimisticDataStore> InitializeAsync()
         {
-            await blobContainer.CreateIfNotExistsAsync();
+            await _blobContainerClient.CreateIfNotExistsAsync();
             return this;
         }
+
+        private BlobOptimisticDataStore(BlobServiceClient blobServiceClient, string containerName)
+        {
+            _blobContainerClient= blobServiceClient.GetBlobContainerClient(containerName.ToLower());
+            //can't call CreateIfNotExistsAsync in the constructor, hence the static CreateAsync versions above
+
+            _blobReferences = new ConcurrentDictionary<string, BlobClient>(); //This passes parallel integration tests without using ConcurrentDictionary
+        }
+
+        private BlobOptimisticDataStore(string connectionString, string containerName) : 
+            this(new BlobServiceClient(connectionString), containerName)
+        {
+
+        }
+
+        private BlobOptimisticDataStore(Uri serviceUri, AzureSasCredential azureSasCredential, string containerName)
+            : this(new BlobServiceClient(serviceUri, azureSasCredential), containerName)
+        {
+        }
+
+
+        private BlobOptimisticDataStore(Uri serviceUri, StorageSharedKeyCredential storageSharedKeyCredential, string containerName)
+            : this(new BlobServiceClient(serviceUri, storageSharedKeyCredential), containerName)
+        {
+
+        }
+
+        private BlobOptimisticDataStore(Uri serviceUri, TokenCredential tokenCredential,  string containerName)
+            : this (new BlobServiceClient(serviceUri, tokenCredential), containerName)
+        {
+
+        }
+
+
 
         public async Task<string> GetDataAsync(string blockName)
         {
             var blobReference = await GetBlobReferenceAsync(blockName);
             using (var stream = new MemoryStream())
             {
-                await blobReference.DownloadToStreamAsync(stream);
+                await blobReference.DownloadToAsync(stream);
                 return Encoding.UTF8.GetString(stream.ToArray());
             }
         }
@@ -54,11 +99,16 @@ namespace SnowMaker
             var blobReference = await GetBlobReferenceAsync(scopeName);
             try
             {
-                await UploadTextAsync(blobReference,data, AccessCondition.GenerateIfMatchCondition(blobReference.Properties.ETag));
+                var blobProperties = await blobReference.GetPropertiesAsync();                
+                BlobRequestConditions accessConditions = new BlobRequestConditions();                
+                accessConditions.IfMatch = blobProperties.Value.ETag; 
+
+                await UploadTextAsync(blobReference, data, accessConditions);
             }
-            catch (StorageException exc)
+            catch (RequestFailedException exc)
             {
-                if (exc.RequestInformation.HttpStatusCode == (int)HttpStatusCode.PreconditionFailed)
+                System.Diagnostics.Debug.WriteLine($"TryOptimisticWriteAsync RequestFailedException {exc.ErrorCode} {exc.Status} {exc.InnerException}");
+                if (exc.Status == (int)HttpStatusCode.PreconditionFailed)
                     return false;
 
                 throw;
@@ -66,41 +116,50 @@ namespace SnowMaker
             return true;
         }
 
-        async Task<ICloudBlob> GetBlobReferenceAsync(string blockName)
+        private async Task<BlobClient> GetBlobReferenceAsync(string blockName)
         {
-            return await blobReferences.GetValueAsync(
+            return await _blobReferences.GetValueAsync(
                 blockName,
-                blobReferencesSemaphore,
-                () => InitializeBlobReference(blockName));
+                _blobReferencesSemaphore,
+                async () => await InitializeBlobReference(blockName));
         }
 
-        private async Task<ICloudBlob> InitializeBlobReference(string blockName)
+        private async Task<BlobClient> InitializeBlobReference(string blockName)
         {
-            var blobReference = blobContainer.GetBlockBlobReference(blockName);
+            var blobReference = _blobContainerClient.GetBlobClient(blockName);
+
             var exists = await blobReference.ExistsAsync();
-            if (exists)
+            if (exists) {
                 return blobReference;
+            }
 
             try
             {
-                await UploadTextAsync(blobReference, SeedValue, AccessCondition.GenerateIfNoneMatchCondition("*"));
+                BlobRequestConditions blobRequestConditions =
+                    new BlobRequestConditions();
+                blobRequestConditions.IfNoneMatch = new ETag("*");
+                await UploadTextAsync(blobReference, SeedValue, blobRequestConditions);
             }
-            catch (StorageException uploadException)
+            catch (RequestFailedException uploadException)
             {
-                if (uploadException.RequestInformation.HttpStatusCode != (int)HttpStatusCode.Conflict)
+                if (uploadException.Status != (int)HttpStatusCode.Conflict)
                     throw;
             }
 
             return blobReference;
         }
 
-        private async Task UploadTextAsync(ICloudBlob blob, string text, AccessCondition accessCondition)
+        private async Task UploadTextAsync(BlobClient blob, string text, BlobRequestConditions accessCondition)
         {
-            blob.Properties.ContentEncoding = "UTF-8";
-            blob.Properties.ContentType = "text/plain";
+            var blobUploadOptions = new BlobUploadOptions();
+            blobUploadOptions.Conditions = accessCondition;
+            blobUploadOptions.HttpHeaders = new BlobHttpHeaders();
+            blobUploadOptions.HttpHeaders.ContentType = "text/plain";
+            blobUploadOptions.HttpHeaders.ContentEncoding = "UTF-8";
+
             using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(text)))
             {
-                await blob.UploadFromStreamAsync(stream,accessCondition, new BlobRequestOptions(), new OperationContext());
+                await blob.UploadAsync(stream, blobUploadOptions);
             }
         }
     }

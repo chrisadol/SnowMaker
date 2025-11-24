@@ -10,14 +10,14 @@ namespace SnowMaker
         public static async Task<TValue> GetValueAsync<TKey, TValue>(
             this IDictionary<TKey, TValue> dictionary,
             TKey key,
-            SemaphoreSlim dictionarySemaphoreSlim,
+            SemaphoreSlim semaphoreSlim,
             Func<Task<TValue>> valueInitializer)
         {
             TValue value;
             var found = dictionary.TryGetValue(key, out value);
             if (found) return value;
 
-            await dictionarySemaphoreSlim.WaitAsync();
+            await semaphoreSlim.WaitAsync();
             try
             {
                 found = dictionary.TryGetValue(key, out value);
@@ -29,7 +29,7 @@ namespace SnowMaker
             }
             finally
             {
-                dictionarySemaphoreSlim.Release();
+                semaphoreSlim.Release();
             }
             return value;
         }

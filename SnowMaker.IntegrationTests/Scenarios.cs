@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -142,9 +143,9 @@ namespace SnowMaker.IntegrationTests
         }
 
         [Test]
-        public async Task ShouldSupportUsingOneGeneratorFromMultipleThreads()
+        public async Task ShouldSupportUsingOneGeneratorFromMultipleThreads() // TEST SHOULD BE RUN 1000 TIMES (ON MULTI-CORE CPU) TO CONFIRM BEHAVIOUR PASSES CORRECTLY
         {
-
+            Console.WriteLine("ShouldSupportUsingOneGeneratorFromMultipleThreads starting...");
             // Arrange
             using (var testScope = BuildTestScope())
             {
@@ -165,9 +166,18 @@ namespace SnowMaker.IntegrationTests
 
                 var tasks = listToExecute.ForEachAsync(10,async item =>
                 {
-                    var idToAdd = await generator.NextIdAsync(scopeName);
-                    generatedIds.Enqueue(idToAdd);
-                    threadIds.Enqueue(Thread.CurrentThread.ManagedThreadId);
+                    try
+                    {
+                        var idToAdd = await generator.NextIdAsync(scopeName);
+                        generatedIds.Enqueue(idToAdd);
+                        threadIds.Enqueue(Thread.CurrentThread.ManagedThreadId);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"ShouldSupportUsingOneGeneratorFromMultipleThreads failed at listToExecute.ForEachAsync for item {item}...");
+                        throw;
+                    }
+                    
                 });
                 await Task.WhenAll(tasks);
 
@@ -231,8 +241,20 @@ namespace SnowMaker.IntegrationTests
                 // Assert we generated the right count of ids
                 Assert.AreEqual(testLength*2, generatedIds.Count,"wrong number of ids generated");
 
+                if (generatedIds.GroupBy(n => n).Any(g => g.Count() != 1))
+                {
+                    var problemIds = generatedIds.GroupBy(n => n).Where(g => g.Count() != 1);
+
+                    var problemIdsString = string.Empty;
+                    foreach (var problemIdGrouping in problemIds)
+                    {
+                        problemIdsString += $"{problemIdGrouping.Key} => {problemIdGrouping.Count()} {Environment.NewLine}";
+                    }
+                    Console.WriteLine($"problem Ids {problemIdsString}");
+
+                }
                 // Assert there were no duplicates
-                Assert.IsFalse(generatedIds.GroupBy(n => n).Any(g => g.Count() != 1), "duplicated ids were generated");
+                Assert.IsFalse(generatedIds.GroupBy(n => n).Any(g => g.Count() != 1), "duplicated ids were generated ");
 
                 // Assert we used multiple threads
                 var uniqueThreadsUsed = threadIds.Distinct().Count();

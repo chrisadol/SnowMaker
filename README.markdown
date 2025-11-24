@@ -5,15 +5,26 @@ A high performance, distributed unique id generator for Azure environments.
 
 Ids are longs, not ugly GUIDs.
 
-This forked version updated by Chris Adol to  netstandard1.3/netstandard2.0 and async.
+This forked version updated by Chris Adol to netstandard2.0/netstandard2.1 and async. Now uses Azure.Storage.Blobs nuget package.
 
 This version is available on NuGet as SnowMakerCore: [http://nuget.org/List/Packages/SnowMakerCore](http://nuget.org/List/Packages/SnowMakerCore)
 
 Usage should be something like this (different to the original usage):
 ```csharp     
-     var cloudStorageAccount = CloudStorageAccount.Parse(storageConnectionString);
+     var storageConnectionString = "UseDevelopmentStorage=true"; //Actually, get a real connection string from your configuration.
      const string containerName = "snowmakerKeys";
-     var dataStore = await BlobOptimisticDataStore.CreateAsync(cloudStorageAccount, containerName);
+     var dataStore = await BlobOptimisticDataStore.CreateAsync(storageConnectionString, containerName);
+     var cloudyKeyGenerator = new UniqueIdGenerator(dataStore);
+     var orderNumber = await cloudyKeyGenerator.NextIdAsync("orderNumbers");
+```
+
+Another example useage (using AzureSasCredential approach):
+```csharp     
+     var accountName = "mystorageaccountname"; //Actually, get a real storage account name from your configuration.
+     var serviceUri = new Uri($"https://{accountName}.blob.core.windows.net");
+     var azureSasCredential = new DefaultAzureCredential();
+     const string containerName = "snowmakerKeys";
+     var dataStore = await BlobOptimisticDataStore.CreateAsync(serviceUri, azureSasCredential, containerName);
      var cloudyKeyGenerator = new UniqueIdGenerator(dataStore);
      var orderNumber = await cloudyKeyGenerator.NextIdAsync("orderNumbers");
 ```

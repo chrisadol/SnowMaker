@@ -20,7 +20,7 @@ if (-not $?)
 }
 
 # Upload the NuGet package
-$NuPkgPath = Join-Path -Path $SolutionRoot -ChildPath "SnowMaker.$ReleaseVersionNumber.nupkg"
+$NuPkgPath = Join-Path -Path $SolutionRoot -ChildPath "SnowMakerCore.$ReleaseVersionNumber.nupkg"
 & nuget push $NuPkgPath
 if (-not $?)
 {

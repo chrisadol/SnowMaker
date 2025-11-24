@@ -1,7 +1,7 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Castle.Core.Internal;
 using NUnit.Framework;
 
 namespace SnowMaker.Tests
@@ -18,11 +18,29 @@ namespace SnowMaker.Tests
             };
 
             // Act
-            // null can't be used as a lock and will throw an exception if attempted
             var value = await dictionary.GetValueAsync("foo", null, null);
 
             // Assert
             Assert.AreEqual("bar", value);
+        }
+
+        [Test]
+        [Ignore("Temporary skip")] //CONSIDER RE-ADDING THIS
+        public async Task GetValueShouldThrowAnExceptionWithANullLockAsItAlwaysUsesTheLock()
+        {
+            var dictionary = new Dictionary<string, string>
+            {
+                { "foo", "bar" }
+            };
+            
+            // null can't be used as a lock and should throw an exception if attempted
+            // Assert
+            Assert.ThrowsAsync<NullReferenceException>(async () =>
+            {
+                // Act
+                var value = await dictionary.GetValueAsync("foo", null, null);
+            });
+
         }
 
         [Test]
@@ -66,7 +84,7 @@ namespace SnowMaker.Tests
 #pragma warning restore 1998
 
             // Act
-            if (!value.IsNullOrEmpty())
+            if (!string.IsNullOrEmpty(value))
             {
                 var value2 = await dictionary.GetValueAsync(
                     "bar",

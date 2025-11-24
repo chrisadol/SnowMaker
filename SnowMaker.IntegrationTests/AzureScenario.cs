@@ -2,8 +2,8 @@
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using Microsoft.Azure.Storage;
-using Microsoft.Azure.Storage.Blob;
+using Azure.Storage;
+using Azure.Storage.Blobs;
 using NUnit.Framework;
 
 namespace SnowMaker.IntegrationTests
@@ -11,29 +11,30 @@ namespace SnowMaker.IntegrationTests
     [TestFixture]
     public class AzureScenario : Scenarios<AzureScenario.TestScope>
     {
-        readonly CloudStorageAccount storageAccount = CloudStorageAccount.DevelopmentStorageAccount;
+
+        private const string DevelopmentStorageAccount = "UseDevelopmentStorage=true"; 
 
         protected override TestScope BuildTestScope()
         {
-            return new TestScope(CloudStorageAccount.DevelopmentStorageAccount);
+            return new TestScope(DevelopmentStorageAccount);
         }
 
         protected override async Task<IOptimisticDataStore> BuildStoreAsync(TestScope scope)
         {
-            return await BlobOptimisticDataStore.CreateAsync(storageAccount, scope.ContainerName);
+            return await BlobOptimisticDataStore.CreateAsync(DevelopmentStorageAccount, scope.ContainerName);
         }
 
         public class TestScope : ITestScope
         {
-            readonly CloudBlobClient blobClient;
+            readonly BlobServiceClient blobServiceClient;
 
-            public TestScope(CloudStorageAccount account)
+            public TestScope(string connectionString)
             {
                 var ticks = DateTime.UtcNow.Ticks;
                 IdScopeName = string.Format("snowmakertest{0}", ticks);
                 ContainerName = string.Format("snowmakertest{0}", ticks);
 
-                blobClient = account.CreateCloudBlobClient();
+                blobServiceClient = new BlobServiceClient(connectionString);
             }
 
             public string IdScopeName { get; private set; }
@@ -41,19 +42,19 @@ namespace SnowMaker.IntegrationTests
 
             public async Task<string> ReadCurrentPersistedValueAsync()
             {
-                var blobContainer = blobClient.GetContainerReference(ContainerName);
-                var blob = blobContainer.GetBlockBlobReference(IdScopeName);
+                var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerName.ToLower());
+                var blobClient = blobContainerClient.GetBlobClient(IdScopeName);
                 using (var stream = new MemoryStream())
                 {
-                    await blob.DownloadToStreamAsync(stream);
+                    await blobClient.DownloadToAsync(stream);
                     return Encoding.UTF8.GetString(stream.ToArray());
                 }
             }
 
             public void Dispose()
             {
-                var blobContainer = blobClient.GetContainerReference(ContainerName);
-                AsyncHelper.RunSync(() => blobContainer.DeleteAsync());
+                var blobContainerClient = blobServiceClient.GetBlobContainerClient(ContainerName.ToLower());
+                AsyncHelper.RunSync(() => blobContainerClient.DeleteAsync());
             }
         }
     }

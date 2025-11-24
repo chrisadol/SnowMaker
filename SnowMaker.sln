@@ -1,11 +1,15 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26430.4
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11218.70 d18.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SnowMaker", "SnowMaker\SnowMaker.csproj", "{0AD4FCE5-6968-4B85-9159-50F63D168907}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{7E1BB869-9152-48ED-9D43-D846800D7DBF}"
+	ProjectSection(SolutionItems) = preProject
+		.gitignore = .gitignore
+		README.markdown = README.markdown
+	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".nuget", ".nuget", "{468FD449-DA90-4C2F-B595-B4D5EA828F46}"
 	ProjectSection(SolutionItems) = preProject
@@ -39,5 +43,8 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {ED4FECEB-09FC-4ADE-9583-A837B37550E1}
 	EndGlobalSection
 EndGlobal
